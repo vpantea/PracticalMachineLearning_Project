@@ -1,0 +1,172 @@
+Prediction Assignment Writeup
+========================================================
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Data 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+As on windows there are R issues with downloading https:// I downloaded in working folder these 2 data files and loaded from there: 
+```{r}
+#file_trainingAll <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv/pml-training.csv"
+trainingAll <- read.csv(file="pml-training.csv", na.strings = c("NA", ""), stringsAsFactors=FALSE)
+ncol(trainingAll)
+nrow(trainingAll)
+#str(trainingAll)
+
+#file_testingAll <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv/pml-testing.csv"
+testingAll <- read.csv(file="pml-testing.csv", na.strings = c("NA", ""), stringsAsFactors=FALSE)
+ncol(testingAll)
+nrow(testingAll)
+#str(testingAll)
+```
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+1. Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+2. You should also apply your machine learning algorithm to the 20 test cases available in the test data above. Please submit your predictions in appropriate format to the programming assignment for automated grading. See the programming assignment for additional details. 
+
+## Used libraries
+```{r}
+library(caret)
+library(e1071)
+```
+
+
+## Exploratory Data Analysis
+First, we need to get rid of columns with no data, NA-s or constant data with no variance.  
+```{r}
+ncol(testingAll)
+testingAll <- testingAll[colSums(is.na(testingAll)) == 0]
+ncol(testingAll)
+#head(testingAll)
+
+ncol(trainingAll)
+trainingAll <- trainingAll[colSums(is.na(trainingAll)) == 0]
+ncol(trainingAll)
+#head(trainingAll)
+```
+
+Then eliminate first 6 columns used for user/exercise identification:  
+```{r}
+testingAll <- testingAll[, -c(1,2,3,4,5,6)]
+trainingAll <- trainingAll[, -c(1,2,3,4,5,6)]
+```
+
+Set output variable as factor:  
+```{r}
+trainingAll$classe <- as.factor(trainingAll$classe)
+```
+
+
+## Split available trainingAll dataframe in 2 sets: for training and testing models
+```{r}
+set.seed(1234)
+inTrain <- createDataPartition(y = trainingAll$classe, p=0.7, list=FALSE)
+training <- trainingAll[inTrain, ]
+testing <- trainingAll[-inTrain, ]
+
+```
+
+
+Separate the predictors from the outcome variable:  
+```{r}
+predictors <- training[, -ncol(training)]
+```
+
+Check for predictors with low variance:  
+```{r}
+nzv <- nearZeroVar(predictors, saveMetrics = TRUE)
+nzv[nzv$nzv, ][1:10, ]
+```
+
+
+Use caret's preProcess function to transform for skewness:  
+```{r}
+##skewTrainValues <- apply(predictors,2,skewness)
+##skewTrainValues[order(skewTrainValues)]
+##predictorsPP <- preProcess(predictors, method="BoxCox")
+
+```
+
+
+## Model fitting
+
+Try a random forest model with cross validation with 10 folders and 54, i.e. nb.predictors, trees:  
+```{r}
+# train random forest predictive model with cross validation on 10 folds
+# and Number of trees to grow set to predictors number
+model_rf <- train(classe ~., data = training, method = "rf", 
+                 trControl = trainControl(method = "cv", number = 10), 
+                 ntree = 54, importance = TRUE)
+
+# apply Random Forest model to testing set
+model_rf_prediction <- predict(model_rf, testing)
+
+# compute confusion matrix for rf model for accuracy and out of sample error
+confusion_matrix <- confusionMatrix( model_rf_prediction, testing$classe)
+confusion_matrix$table
+model_rf_accuracy <- confusion_matrix$overall["Accuracy"][[1]]
+
+# estimated out-of-sample error 
+out_of_sample_error_rf <- 1 - model_rf_accuracy
+out_of_sample_error_rf
+```
+
+Try a model based prediction with cross validation with 10 folders :  
+```{r}
+model_lda <- train(classe ~., data = training, method = "lda", 
+                 trControl = trainControl(method = "cv", number = 10))
+
+# apply lda model to testing set
+model_lda_prediction <- predict(model_lda, testing)
+
+# compute confusion matrix for lda model
+confusion_matrix <- confusionMatrix( model_lda_prediction, testing$classe)
+confusion_matrix$table
+model_lda_accuracy <- confusion_matrix$overall["Accuracy"][[1]]
+
+# estimated out-of-sample error 
+out_of_sample_error <- 1 - model_lda_accuracy
+out_of_sample_error
+
+```
+
+
+## Predict the 20 requested tests
+```{r}
+final_predictions_based_on_rf <- predict(model_rf, testingAll)
+final_predictions_based_on_lda <- predict(model_lda, testingAll)
+
+```
+# Prediction Assignment Submission
+
+```{r}
+pml_write_files = function(x, folder){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./",folder,"/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(final_predictions_based_on_rf, "rf")
+
+pml_write_files(final_predictions_based_on_lda, "lda")
+```
+
+
+
+
